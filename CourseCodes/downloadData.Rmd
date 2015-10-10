@@ -1,0 +1,33 @@
+## Loading referral network into R
+
+[Download data](http://downloads.cms.gov/foia/physician-referrals-2014-2015-days365.zip) and unzip the file. Put file into appropriate directory and call from R.  
+
+
+```{r cache=TRUE}
+library(data.table)  # so fast!
+library(igraph)  # all the basic graph operations.
+
+# E = read.table("~/dataFiles/physicianReferral/physician-referrals-2015-days365.txt",sep = ",", colClasses = c("character", "character","numeric", "numeric", "numeric"), col.names = c("from", "to", "count", "tmp1", "tmp2"))
+Et = fread("~/dataFiles/physicianReferral/physician-referrals-2015-days365.txt",sep = ",",  colClasses = c("character", "character","numeric", "numeric", "numeric"))
+setkey(Et, V1)
+head(Et)
+```
+
+
+Now load some physician characteristics from [here](https://data.medicare.gov/views/bg9k-emty/files/rQdIQVZqsPNijOx_AgnNU4v9KnOBTB_UrxyPbgCDyK4?content_type=application%2Fzip%3B%20charset%3Dbinary&filename=physician_compare.zip). Put into the appropriate directory and call from R. 
+
+
+```{r cache=TRUE}
+b= c(rep("character", 6),rep("factor",4), "numeric", rep("factor",6), "character", "character", "character", "numeric", rep("character",2), "factor", "character", "factor", "character", rep("character", 10), rep("factor", 6))
+DT = fread("~/dataFiles/physicianReferral/National_Downloadable_File.csv",colClasses = b)
+setkey(DT, NPI)
+head(DT)
+```
+
+From now on, this will be performed by running 
+
+```{r}
+# source("http://pages.stat.wisc.edu/~karlrohe/netsci/code/loadData.R")
+```
+
+

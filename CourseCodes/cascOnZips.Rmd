@@ -1,0 +1,141 @@
+#### Incorporating additional information into the formation of clusters.
+
+[Covariate assisted spectral clustering (CASC)](http://arxiv.org/abs/1411.2158) is a way of including additional node level data to bias the clusters towards something that we suspect matters.  In this case, we want clusters that are "continuous in space".  
+
+Below, I have not included the literal version of CASC.  Instead, the approach is as follows.  
+
+1) Construct two graphs.   The first graph is the same as above.  The second graph is the 10 nearest neighbor graph for zip code locations.  
+2) Compute the regularized $L_{sym}$ matrix for both graphs. Add these matrices to form a new similarity matrix. 
+3) Compute the leading eigenvectors of this matrix and row normalize.  Run k-means.
+
+
+```{r include = FALSE}
+
+# this loads the data, the libraries, and a function to draw a convex hull.
+
+library(Matrix)
+library(igraph)
+library(data.table)
+library(rARPACK)
+library(zipcode)
+library(maps)
+library(grDevices)
+
+set.seed(1)
+rm(list = ls())
+
+data(zipcode); zipcode = as.data.table(zipcode); setkey(zipcode, zip)
+
+# This is copy pasted from https://chitchatr.wordpress.com/2011/12/30/convex-hull-around-scatter-plot-in-r/
+### Plotting function to plot convex hulls
+### Filename: Plot_ConvexHull.R
+### Notes:
+############################################################################
+
+# INPUTS:
+# xcoords: x-coordinates of point data
+# ycoords: y-coordinates of point data
+# lcolor: line color
+
+# OUTPUTS:
+# convex hull around data points in a particular color (specified by lcolor)
+
+# FUNCTION:
+Plot_ConvexHull<-function(xcoord, ycoord, lcolor, thick=1){
+  hpts <- chull(x = xcoord, y = ycoord)
+  hpts <- c(hpts, hpts[1])
+  lines(xcoord[hpts], ycoord[hpts], col = lcolor, lwd = thick)
+}  
+# END OF FUNCTION
+```
+
+
+```{r}
+load(url("http://pages.stat.wisc.edu/~karlrohe/netsci/data/zipA.RData"))
+library(FNN)
+dat = as.matrix(zipcode[rownames(A),c("longitude", "latitude"), with = F])
+good = complete.cases(dat)
+Knng = get.knn(dat[good,])
+dict = rownames(A)[good]
+cbind(dict[1], dict[Knng$nn.index[1,]])
+knnEL = matrix("", nrow = prod(dim(Knng$nn.index)), ncol = 2)
+for(i in 1:nrow(Knng$nn.index))  knnEL[1:10 + 10*(i-1),] = cbind(dict[i], dict[Knng$nn.index[i,]])
+gknn=graph.edgelist(knnEL,directed = F) # this creates a graph.
+Aknn = get.adjacency(gknn)
+cross = match(rownames(A)[good], rownames(Aknn))
+mean(rownames(Aknn)[cross] == rownames(A)[good])
+Aknn = Aknn[cross,cross]
+
+CASC = function(A, B, k){
+  rs = rowSums(A)
+  D = Diagonal(n = nrow(A), 1/sqrt(rs + mean(rs)))
+  La = D%*%A%*%D
+  
+  rs = rowSums(B)
+  D = Diagonal(n = nrow(B), 1/sqrt(rs + mean(rs)))
+  Lb = D%*%B%*%D
+  
+  # Matrix won't allow addition La+Lb ... ugh. 
+  # do it by converting to igraph and take a union of graphs.
+  ga = graph.adjacency(La,weighted = T)
+  gb = graph.adjacency(Lb,weighted = T)
+  gg = ga %u% gb
+  E(gg)$weight_1[is.na(E(gg)$weight_1)] = 0
+  E(gg)$weight_2[is.na(E(gg)$weight_2)] = 0
+  E(gg)$weight = E(gg)$weight_1 + E(gg)$weight_2
+  L2 = get.adjacency(gg,attr = "weight")
+  
+  X = eigs(L2,k)$vec
+  X = t(apply(X, 1, function(x) return(x/sqrt(sum(x^2)))))
+  return(kmeans(X, k, nstart = 20))
+}
+
+csc = CASC(A,Aknn, 10)
+loc = zipcode[rownames(A), c("longitude", "latitude"), with  =F]
+loc = as.matrix(loc)
+# pdf(file = "newRegions2.pdf", height = 13, width = 20)
+plot(rnorm(loc[,1],loc[,1],.1),rnorm(loc[,2],loc[,2],.1), col=as.factor(csc$clust),
+     xlim = c(-125, -65), ylim = c(24, 50), pch  =19)
+map('state', add = T) 
+# draw a polygon around the convex hull of the first 10 clusters.
+good = complete.cases(loc)
+comploc = loc[good,]
+for(i in 1:10){
+  i = i+1
+  inclust = which(csc$cluster[good] ==i)
+  Plot_ConvexHull(xcoord = comploc[inclust,1], ycoord = comploc[inclust,2],lcolor = "black", thick = 2)
+}
+# dev.off()
+```
+
+```{r}
+k = 250
+csc = CASC(A,Aknn, k)
+loc = zipcode[rownames(A), c("longitude", "latitude"), with  =F]
+loc = as.matrix(loc)
+# pdf(file = "newRegions2.pdf", height = 13, width = 20)
+plot(rnorm(loc[,1],loc[,1],.1),rnorm(loc[,2],loc[,2],.1), col=as.factor(csc$clust),
+     xlim = c(-125, -65), ylim = c(24, 50), pch  =19)
+map('state', add = T) 
+# draw a polygon around the convex hull of the first 10 clusters.
+good = complete.cases(loc)
+comploc = loc[good,]
+for(i in 1:k){
+  i = i+1
+  inclust = which(csc$cluster[good] ==i)
+  Plot_ConvexHull(xcoord = comploc[inclust,1], ycoord = comploc[inclust,2],lcolor = "black", thick = 2)
+}
+# dev.off()
+
+map('state', add = F) 
+# draw a polygon around the convex hull of the first 10 clusters.
+good = complete.cases(loc)
+comploc = loc[good,]
+for(i in 1:k){
+  i = i+1
+  inclust = which(csc$cluster[good] ==i)
+  Plot_ConvexHull(xcoord = comploc[inclust,1], ycoord = comploc[inclust,2],lcolor = "black", thick = 2)
+}
+
+```
+
